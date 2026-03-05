@@ -4,161 +4,193 @@ import qrcode
 from io import BytesIO
 import os
 
-# ================== CONFIG (Render Environment Variables) ==================
-API_TOKEN = os.environ.get("8642550842:AAHKWKmDs2jrV8t3xBIoD2BK6cOYTV_Tmro")
+# ===== ENV VARIABLES =====
+API_TOKEN = os.environ.get("8642550842:AAHKKWmDs2jrV8t3xBIoD2BK6c0YTV_Tmro")
 ADMIN_ID = int(os.environ.get("8749717831"))
 UPI_ID = os.environ.get("7023673602@ptaxis")
-# ===========================================================================
 
 bot = telebot.TeleBot(API_TOKEN)
 
+# ===== PRICES =====
 PRICES = {
     "Shein ₹500 Coupon": 500,
     "Shein ₹1000 Coupon": 1000
 }
 
-# ================== MAIN MENU ==================
-
+# ===== MAIN MENU =====
 def main_menu(chat_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    btn1 = types.KeyboardButton("Buy Vouchers")
-    btn2 = types.KeyboardButton("Recover Vouchers")
+
+    btn1 = types.KeyboardButton("Buy Vouchers 🛒")
+    btn2 = types.KeyboardButton("Recover Vouchers ♻️")
+
     markup.add(btn1, btn2)
 
-    bot.send_message(chat_id, "Main Menu 👇", reply_markup=markup)
+    bot.send_message(
+        chat_id,
+        "Welcome to Shein Voucher Store\nChoose an option:",
+        reply_markup=markup
+    )
 
+
+# ===== START =====
 @bot.message_handler(commands=['start'])
 def start(message):
     main_menu(message.chat.id)
 
-# ================== BUY VOUCHERS ==================
 
-@bot.message_handler(func=lambda m: m.text == "Buy Vouchers")
-def buy_vouchers(message):
+# ===== BUY VOUCHERS =====
+@bot.message_handler(func=lambda m: m.text == "Buy Vouchers 🛒")
+def buy_voucher(message):
+
     markup = types.InlineKeyboardMarkup()
-    for item in PRICES.keys():
-        markup.add(types.InlineKeyboardButton(item, callback_data=item))
+
+    btn1 = types.InlineKeyboardButton(
+        "Shein ₹500 Coupon",
+        callback_data="voucher_500"
+    )
+
+    btn2 = types.InlineKeyboardButton(
+        "Shein ₹1000 Coupon",
+        callback_data="voucher_1000"
+    )
+
+    markup.add(btn1)
+    markup.add(btn2)
 
     bot.send_message(
         message.chat.id,
-        "Konsa voucher chahiye? Choose karein:",
+        "Choose Voucher:",
         reply_markup=markup
     )
 
-# ================== RECOVER ==================
 
-@bot.message_handler(func=lambda m: m.text == "Recover Vouchers")
-def recover(message):
-    bot.send_message(message.chat.id, "Apna Order ID bhejein recovery ke liye.")
+# ===== SELECT VOUCHER =====
+@bot.callback_query_handler(func=lambda call: call.data.startswith("voucher"))
+def select_voucher(call):
 
-# ================== ASK QUANTITY ==================
+    amount = call.data.split("_")[1]
 
-@bot.callback_query_handler(func=lambda call: call.data in PRICES.keys())
-def ask_quantity(call):
-    bot.answer_callback_query(call.id)
-
-    voucher = call.data
     msg = bot.send_message(
         call.message.chat.id,
-        f"Aapne '{voucher}' select kiya hai.\nKitni Quantity chahiye? (Sirf number likhein)"
+        "Enter quantity:"
     )
 
-    bot.register_next_step_handler(msg, generate_qr, voucher)
+    bot.register_next_step_handler(msg, process_qty, amount)
 
-# ================== GENERATE QR ==================
 
-def generate_qr(message, voucher):
-    text = message.text.strip()
+# ===== PROCESS QTY =====
+def process_qty(message, amount):
 
-    if not text.isdigit():
-        bot.send_message(message.chat.id, "Galat input! Sirf number dalein.")
-        return
+    try:
+        qty = int(message.text)
+        total = int(amount) * qty
 
-    qty = int(text)
+        upi_url = f"upi://pay?pa={UPI_ID}&pn=VoucherStore&am={total}&cu=INR"
 
-    if qty <= 0:
-        bot.send_message(message.chat.id, "Quantity 1 ya usse zyada honi chahiye.")
-        return
+        qr = qrcode.make(upi_url)
 
-    total = qty * PRICES[voucher]
+        buf = BytesIO()
+        qr.save(buf)
+        buf.seek(0)
 
-    upi_url = f"upi://pay?pa={UPI_ID}&pn=SheinStore&am={total}&cu=INR"
+        caption = f"""
+Order Details
 
-    qr = qrcode.make(upi_url)
-    buf = BytesIO()
-    qr.save(buf)
-    buf.seek(0)
+Amount : ₹{amount}
+Quantity : {qty}
 
-    caption = (
-        f"Order Details\n\n"
-        f"Item: {voucher}\n"
-        f"Quantity: {qty}\n"
-        f"Total: Rs {total}\n\n"
-        f"QR scan karke payment karein.\n"
-        f"Payment ke baad Verify Payment dabayein."
-    )
+Total : ₹{total}
 
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton(
+Scan QR and pay.
+"""
+
+        markup = types.InlineKeyboardMarkup()
+
+        btn = types.InlineKeyboardButton(
             "Verify Payment",
-            callback_data=f"verify|{voucher}|{qty}|{total}"
+            callback_data=f"verify_{total}"
         )
-    )
 
-    bot.send_photo(
-        message.chat.id,
-        buf,
-        caption=caption,
-        reply_markup=markup
-    )
+        markup.add(btn)
 
-# ================== VERIFY PAYMENT ==================
+        bot.send_photo(
+            message.chat.id,
+            buf,
+            caption=caption,
+            reply_markup=markup
+        )
 
+    except:
+        bot.send_message(message.chat.id, "Send valid number")
+
+
+# ===== VERIFY =====
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify"))
-def verify_payment(call):
-    bot.answer_callback_query(call.id)
+def verify(call):
 
-    data = call.data.split("|")
-    voucher = data[1]
-    qty = data[2]
-    total = data[3]
+    total = call.data.split("_")[1]
 
-    bot.send_message(call.message.chat.id, "Payment verify ho rahi hai... 1-2 minute wait karein.")
-
-    admin_msg = (
-        f"Naya Order!\n\n"
-        f"User ID: {call.from_user.id}\n"
-        f"Username: @{call.from_user.username}\n"
-        f"Voucher: {voucher}\n"
-        f"Qty: {qty}\n"
-        f"Amount: Rs {total}\n\n"
-        f"Is message par reply karke coupon bhejein."
+    bot.send_message(
+        call.message.chat.id,
+        "Payment verification started..."
     )
+
+    admin_msg = f"""
+New Order
+
+User : @{call.from_user.username}
+User ID : {call.from_user.id}
+
+Amount : ₹{total}
+
+Reply with coupon code to deliver.
+"""
 
     bot.send_message(ADMIN_ID, admin_msg)
 
-# ================== ADMIN REPLY ==================
 
+# ===== ADMIN REPLY =====
 @bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id == ADMIN_ID)
-def deliver_coupon(message):
+def send_coupon(message):
+
     try:
-        original_text = message.reply_to_message.text
-        user_id = original_text.split("User ID: ")[1].split("\n")[0]
+        text = message.reply_to_message.text
+        user_id = int(text.split("User ID : ")[1].split("\n")[0])
 
         coupon = message.text
 
         bot.send_message(
-            int(user_id),
-            f"Aapka Coupon Code:\n{coupon}\n\nDhanyawad shopping ke liye!"
+            user_id,
+            f"Your Coupon Code:\n\n{coupon}"
         )
 
-        bot.send_message(ADMIN_ID, "Coupon successfully bhej diya gaya.")
+        bot.send_message(
+            ADMIN_ID,
+            "Coupon delivered successfully."
+        )
 
     except:
-        bot.send_message(ADMIN_ID, "Delivery fail! Sahi message par reply karein.")
+        bot.send_message(
+            ADMIN_ID,
+            "Failed to send coupon."
+        )
 
-# ================== RUN ==================
+
+# ===== RECOVER =====
+@bot.message_handler(func=lambda m: m.text == "Recover Vouchers ♻️")
+def recover(message):
+
+    bot.send_message(
+        message.chat.id,
+        "Send your order details to admin."
+    )
+
+    bot.send_message(
+        ADMIN_ID,
+        f"Recover request from user {message.from_user.id}"
+    )
+
 
 print("Bot is running...")
 bot.infinity_polling()
