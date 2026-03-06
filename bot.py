@@ -9,15 +9,13 @@ import threading
 
 API_TOKEN = "8642550842:AAE8EVLyTdqIKVz8RPjWKEyJfpAGk99_2J0"
 ADMIN_ID = 8749717831
-UPI_ID = "yourupi@bank"
-
-# ==================
+UPI_ID = "7023673602@ptaxis"
 
 bot = telebot.TeleBot(API_TOKEN)
 
-# ===== FLASK SERVER (Render Free Hosting) =====
+# ===== FLASK SERVER (Render Hosting) =====
 
-app = Flask('')
+app = Flask(__name__)
 
 @app.route('/')
 def home():
@@ -30,11 +28,28 @@ def keep_alive():
     t = threading.Thread(target=run)
     t.start()
 
+# ===== COUPON SYSTEM =====
+
+def get_coupon():
+
+    with open("coupons.txt", "r") as file:
+        coupons = file.readlines()
+
+    if len(coupons) == 0:
+        return None
+
+    coupon = coupons[0].strip()
+
+    with open("coupons.txt", "w") as file:
+        file.writelines(coupons[1:])
+
+    return coupon
+
 # ===== PRICES =====
 
 PRICES = {
-    "Shein ₹500 Coupon": 500,
-    "Shein ₹1000 Coupon": 1000
+    "Shein ₹500 Coupon": 99,
+    "Shein ₹1000 Coupon": 249
 }
 
 # ===== START MENU =====
@@ -55,8 +70,7 @@ def start(message):
         reply_markup=markup
     )
 
-
-# ===== BUY VOUCHER =====
+# ===== BUY =====
 
 @bot.message_handler(func=lambda m: m.text == "Buy Vouchers 🛒")
 def buy(message):
@@ -64,13 +78,13 @@ def buy(message):
     markup = types.InlineKeyboardMarkup()
 
     btn1 = types.InlineKeyboardButton(
-        "Shein ₹500 Coupon",
-        callback_data="voucher_500"
+        "Shein ₹500 Coupon (₹10)",
+        callback_data="voucher_10"
     )
 
     btn2 = types.InlineKeyboardButton(
-        "Shein ₹1000 Coupon",
-        callback_data="voucher_1000"
+        "Shein ₹1000 Coupon (₹50)",
+        callback_data="voucher_50"
     )
 
     markup.add(btn1)
@@ -78,8 +92,7 @@ def buy(message):
 
     bot.send_message(message.chat.id, "Choose voucher:", reply_markup=markup)
 
-
-# ===== SELECT VOUCHER =====
+# ===== SELECT =====
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("voucher"))
 def select(call):
@@ -90,8 +103,7 @@ def select(call):
 
     bot.register_next_step_handler(msg, process_qty, amount)
 
-
-# ===== PROCESS QUANTITY =====
+# ===== PROCESS QTY =====
 
 def process_qty(message, amount):
 
@@ -123,8 +135,8 @@ Scan QR and pay
         markup = types.InlineKeyboardMarkup()
 
         btn = types.InlineKeyboardButton(
-            "Verify Payment",
-            callback_data=f"verify_{total}"
+            "Upload Payment Screenshot",
+            callback_data=f"upload_{total}"
         )
 
         markup.add(btn)
@@ -140,53 +152,125 @@ Scan QR and pay
 
         bot.send_message(message.chat.id, "Send valid number")
 
+# ===== ASK SCREENSHOT =====
 
-# ===== VERIFY PAYMENT =====
+@bot.callback_query_handler(func=lambda call: call.data.startswith("upload"))
+def ask_screenshot(call):
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("verify"))
-def verify(call):
+    amount = call.data.split("_")[1]
 
-    total = call.data.split("_")[1]
+    msg = bot.send_message(
+        call.message.chat.id,
+        "Please upload payment screenshot."
+    )
 
-    bot.send_message(call.message.chat.id, "Payment verification started")
+    bot.register_next_step_handler(msg, receive_screenshot, amount)
 
-    admin_msg = f"""
-New Order
+# ===== RECEIVE SCREENSHOT =====
 
-User : @{call.from_user.username}
-User ID : {call.from_user.id}
+def receive_screenshot(message, amount):
 
-Amount : ₹{total}
+    if message.photo:
 
-Reply with coupon code.
+        file_id = message.photo[-1].file_id
+
+        caption = f"""
+NEW PAYMENT
+
+User : @{message.from_user.username}
+User ID : {message.from_user.id}
+
+Amount : ₹{amount}
 """
 
-    bot.send_message(ADMIN_ID, admin_msg)
+        markup = types.InlineKeyboardMarkup()
 
+        approve = types.InlineKeyboardButton(
+            "Approve Payment",
+            callback_data=f"approve_{message.from_user.id}"
+        )
 
-# ===== ADMIN SEND COUPON =====
+        reject = types.InlineKeyboardButton(
+            "Reject Payment",
+            callback_data=f"reject_{message.from_user.id}"
+        )
 
-@bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id == ADMIN_ID)
-def send_coupon(message):
+        markup.add(approve, reject)
 
-    try:
+        bot.send_photo(
+            ADMIN_ID,
+            file_id,
+            caption=caption,
+            reply_markup=markup
+        )
 
-        text = message.reply_to_message.text
+        bot.send_message(
+            message.chat.id,
+            "Screenshot sent for verification. Please wait."
+        )
 
-        user_id = int(text.split("User ID : ")[1].split("\n")[0])
+    else:
+        bot.send_message(message.chat.id, "Please send screenshot image.")
 
-        coupon = message.text
+# ===== ADMIN APPROVE =====
 
-        bot.send_message(user_id, f"Your Coupon Code:\n\n{coupon}")
+@bot.callback_query_handler(func=lambda call: call.data.startswith("approve"))
+def approve_payment(call):
 
-        bot.send_message(ADMIN_ID, "Coupon delivered")
+    user_id = int(call.data.split("_")[1])
 
-    except:
+    coupon = get_coupon()
 
-        bot.send_message(ADMIN_ID, "Delivery failed")
+    if coupon is None:
 
+        bot.send_message(
+            user_id,
+            "❌ Coupon stock finished. Contact admin."
+        )
 
-# ===== RECOVER VOUCHER =====
+        bot.send_message(
+            ADMIN_ID,
+            "Coupon stock empty."
+        )
+
+        return
+
+    bot.send_message(
+        user_id,
+        f"""
+✅ Payment Approved
+
+🎟 Your Coupon Code:
+
+{coupon}
+
+Thank you for purchase.
+"""
+    )
+
+    bot.send_message(
+        ADMIN_ID,
+        f"Coupon {coupon} delivered to {user_id}"
+    )
+
+# ===== ADMIN REJECT =====
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("reject"))
+def reject_payment(call):
+
+    user_id = int(call.data.split("_")[1])
+
+    bot.send_message(
+        user_id,
+        "Payment rejected ❌\nContact support."
+    )
+
+    bot.send_message(
+        ADMIN_ID,
+        "Payment rejected."
+    )
+
+# ===== RECOVER =====
 
 @bot.message_handler(func=lambda m: m.text == "Recover Vouchers ♻️")
 def recover(message):
@@ -198,11 +282,10 @@ def recover(message):
         f"Recover request from user {message.from_user.id}"
     )
 
-
 # ===== START BOT =====
 
 keep_alive()
 
 print("Bot running...")
 
-bot.infinity_polling()
+bot.infinity_polling(none_stop=True)
