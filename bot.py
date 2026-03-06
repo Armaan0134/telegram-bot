@@ -2,25 +2,45 @@ import telebot
 from telebot import types
 import qrcode
 from io import BytesIO
+from flask import Flask
+import threading
 
 # ===== CONFIG =====
 
 API_TOKEN = "8642550842:AAE8EVLyTdqIKVz8RPjWKEyJfpAGk99_2J0"
 ADMIN_ID = 8749717831
-UPI_ID = "7023673602@ptaxis"
+UPI_ID = "yourupi@bank"
 
 # ==================
 
 bot = telebot.TeleBot(API_TOKEN)
+
+# ===== FLASK SERVER (Render Free Hosting) =====
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run():
+    app.run(host="0.0.0.0", port=10000)
+
+def keep_alive():
+    t = threading.Thread(target=run)
+    t.start()
+
+# ===== PRICES =====
 
 PRICES = {
     "Shein ₹500 Coupon": 500,
     "Shein ₹1000 Coupon": 1000
 }
 
+# ===== START MENU =====
 
-# ===== MAIN MENU =====
-def main_menu(chat_id):
+@bot.message_handler(commands=['start'])
+def start(message):
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
@@ -30,19 +50,14 @@ def main_menu(chat_id):
     markup.add(btn1, btn2)
 
     bot.send_message(
-        chat_id,
+        message.chat.id,
         "Welcome to Shein Voucher Store\nChoose option:",
         reply_markup=markup
     )
 
 
-# ===== START =====
-@bot.message_handler(commands=['start'])
-def start(message):
-    main_menu(message.chat.id)
+# ===== BUY VOUCHER =====
 
-
-# ===== BUY =====
 @bot.message_handler(func=lambda m: m.text == "Buy Vouchers 🛒")
 def buy(message):
 
@@ -64,7 +79,8 @@ def buy(message):
     bot.send_message(message.chat.id, "Choose voucher:", reply_markup=markup)
 
 
-# ===== SELECT =====
+# ===== SELECT VOUCHER =====
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("voucher"))
 def select(call):
 
@@ -75,7 +91,8 @@ def select(call):
     bot.register_next_step_handler(msg, process_qty, amount)
 
 
-# ===== PROCESS =====
+# ===== PROCESS QUANTITY =====
+
 def process_qty(message, amount):
 
     try:
@@ -124,7 +141,8 @@ Scan QR and pay
         bot.send_message(message.chat.id, "Send valid number")
 
 
-# ===== VERIFY =====
+# ===== VERIFY PAYMENT =====
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("verify"))
 def verify(call):
 
@@ -146,7 +164,8 @@ Reply with coupon code.
     bot.send_message(ADMIN_ID, admin_msg)
 
 
-# ===== ADMIN REPLY =====
+# ===== ADMIN SEND COUPON =====
+
 @bot.message_handler(func=lambda m: m.reply_to_message and m.from_user.id == ADMIN_ID)
 def send_coupon(message):
 
@@ -167,7 +186,8 @@ def send_coupon(message):
         bot.send_message(ADMIN_ID, "Delivery failed")
 
 
-# ===== RECOVER =====
+# ===== RECOVER VOUCHER =====
+
 @bot.message_handler(func=lambda m: m.text == "Recover Vouchers ♻️")
 def recover(message):
 
@@ -178,6 +198,10 @@ def recover(message):
         f"Recover request from user {message.from_user.id}"
     )
 
+
+# ===== START BOT =====
+
+keep_alive()
 
 print("Bot running...")
 
