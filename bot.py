@@ -20,7 +20,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Bot running"
 
 def run():
     app.run(host="0.0.0.0", port=10000)
@@ -29,7 +29,7 @@ def keep_alive():
     t = threading.Thread(target=run)
     t.start()
 
-# ===== ORDER + FRAUD PROTECTION =====
+# ===== ORDER + FRAUD =====
 
 approved_orders = set()
 
@@ -40,16 +40,16 @@ def generate_order_id():
 
 def get_coupons(qty):
 
-    with open("coupons.txt","r") as file:
-        coupons = file.readlines()
+    with open("coupons.txt","r") as f:
+        coupons = f.readlines()
 
     if len(coupons) < qty:
         return None
 
     selected = [c.strip() for c in coupons[:qty]]
 
-    with open("coupons.txt","w") as file:
-        file.writelines(coupons[qty:])
+    with open("coupons.txt","w") as f:
+        f.writelines(coupons[qty:])
 
     return selected
 
@@ -93,7 +93,7 @@ def buy(message):
 
     bot.send_message(message.chat.id,"Choose voucher:",reply_markup=markup)
 
-# ===== SELECT VOUCHER =====
+# ===== SELECT =====
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("voucher"))
 def select(call):
@@ -110,9 +110,19 @@ def process_qty(message,price):
 
     try:
 
-        qty = int(message.text)
+        qty = int(message.text.strip())
 
-        total = int(price) * qty
+        if qty < 1:
+            bot.send_message(message.chat.id,"Quantity must be at least 1")
+            return
+
+        if qty > 100:
+            bot.send_message(message.chat.id,"Maximum quantity is 100")
+            return
+
+        price = int(price)
+
+        total = price * qty
 
         order_id = generate_order_id()
 
@@ -166,10 +176,7 @@ def ask_screenshot(call):
     order_id = data[2]
     qty = data[3]
 
-    msg = bot.send_message(
-        call.message.chat.id,
-        "Upload payment screenshot"
-    )
+    msg = bot.send_message(call.message.chat.id,"Upload payment screenshot")
 
     bot.register_next_step_handler(
         msg,
@@ -185,11 +192,7 @@ def receive_screenshot(message,amount,order_id,qty):
 
     if not message.photo:
 
-        bot.send_message(
-            message.chat.id,
-            "Please upload screenshot image"
-        )
-
+        bot.send_message(message.chat.id,"Please upload screenshot image")
         return
 
     file_id = message.photo[-1].file_id
@@ -245,11 +248,7 @@ def approve_payment(call):
 
     if order_id in approved_orders:
 
-        bot.send_message(
-            ADMIN_ID,
-            "Order already approved"
-        )
-
+        bot.send_message(ADMIN_ID,"Order already approved")
         return
 
     approved_orders.add(order_id)
@@ -258,16 +257,8 @@ def approve_payment(call):
 
     if coupons is None:
 
-        bot.send_message(
-            user_id,
-            "Coupon stock finished"
-        )
-
-        bot.send_message(
-            ADMIN_ID,
-            "Not enough coupon stock"
-        )
-
+        bot.send_message(user_id,"Coupon stock finished")
+        bot.send_message(ADMIN_ID,"Not enough coupon stock")
         return
 
     coupon_text = "\n".join(coupons)
@@ -297,10 +288,7 @@ def reject_payment(call):
 
     user_id = int(call.data.split("_")[1])
 
-    bot.send_message(
-        user_id,
-        "Payment rejected ❌"
-    )
+    bot.send_message(user_id,"Payment rejected ❌")
 
 # ===== RECOVER =====
 
